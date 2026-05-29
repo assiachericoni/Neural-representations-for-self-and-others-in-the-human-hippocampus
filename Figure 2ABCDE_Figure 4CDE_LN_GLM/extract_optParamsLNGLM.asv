@@ -1,0 +1,69 @@
+% This code extracts optimization parameters of the LN_GLM, such as LLH and variance
+% explained. Generates histogram of optimization parameters for significant
+% neurons only 
+
+clear; close all;
+%% Load data 
+
+pts = {'YEJ', 'YEK', 'YEU', 'YEW', 'YEX', 'YEY', 'YEZ', 'YFA', 'YFB', 'YFC', 'YFD', 'YFF', 'YFJ', 'YFK', 'YFM', 'YFP', 'YFQ', 'YFR','YFS', 'YFT', 'YFU'}; 
+dates = {'20221221_171717', '20230112_180240', '20231004_131620', '20231116', '20240207_164159', '20240402_124118',...
+    '20240411_103625', '20240424_142255', '20240506_115804', '20240720_113647', '20240731_111516', '20240821_113346',...
+    '20241108_153018', '20250214_154936', '20250318_105540', '20250507_155458', '20250614_150352', '20250705_131156', '20250718_141400', '20250729_173548', '20251212_115117'}; 
+
+
+
+LLH_incr_tot = [];
+correlation_tot = [];
+varExpl_tot = [];
+
+for pp = 1:length(pts)
+    load(['/Users/assiachericoni/Documents/MATLAB/data/PacMan/' pts{pp} '/LN_GLM_RESULTS/GLM_ChosenVSUnchosenPrey/GLMres_2preys.mat']);
+
+    % Select rows with significant results only in hpc
+    DM = orig_DM;
+
+    models_log = ~isnan(all_selected_model);
+    hpc_log = strcmp(DM.brain_regions, 'hpc')';
+
+    logAll = models_log + hpc_log;
+    toSelect = (logAll == 2);
+
+    significant_models = all_selected_model(toSelect);
+
+    significant_GLM = GLM_out(toSelect);
+
+
+    for iN = 1:length(significant_GLM)
+
+        LLH_incr(iN) = mean(significant_GLM(iN).testFit{significant_models(iN), 1}(:,3));
+
+        correlation(iN) = mean(significant_GLM(iN).testFit{significant_models(iN), 1}(:,2));
+
+        varExpl(iN) = mean(significant_GLM(iN).testFit{significant_models(iN), 1}(:,1));
+
+    end
+
+    LLH_incr_tot = [LLH_incr_tot; LLH_incr];
+    correlation_tot = [correlation_tot; correlation];
+    varExpl_tot = [varExpl_tot; varExpl];
+
+end
+
+figure; subplot(1, 3, 1)
+histogram(varExpl_tot, 50)
+% xlim([0 10]);ylim([0 30]);
+xlabel('var expl %'); ylabel('Number of neurons');
+set(gca,'tickDir','out','color','none','linewidth',1,'fontsize',12); box off;
+
+subplot(1, 3, 2)
+figure; histogram(correlation_tot, 50)
+% xlim([0 10]);ylim([0 30]);
+xlabel('correlation'); ylabel('Number of neurons');
+set(gca,'tickDir','out','color','none','linewidth',1,'fontsize',12); box off;
+
+subplot(1, 3, 3)
+histogram(LLH_incr_tot, 50)
+% xlim([0 10]);ylim([0 30]);
+xlabel('delta LLH'); ylabel('Number of neurons');
+set(gca,'tickDir','out','color','none','linewidth',1,'fontsize',12); box off;
+

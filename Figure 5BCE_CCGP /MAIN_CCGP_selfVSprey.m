@@ -1,0 +1,734 @@
+%% Load chuncked data 
+clear; close all
+%load('chunckForCCGP_40s_6binsPerClass.mat')
+% load('chunckForCCGP_40s_6BESTbinsPerClass.mat')
+% load('chunckForCCGP_40s_6BESTbinsPerClass_topbottom.mat')
+% load('chunckForCCGP_40s_6BESTbinsPerClass_diagonal.mat')
+% load('chunckForCCGP_40s_6BESTbinsPerClass_antidiagonal.mat')
+
+
+%%% this code performs CCGP analysis and is inspired by Bernardi et al.,
+%%% 2020 and Yan et al., 2026
+
+% input: chunck data across subjects (here for one subject) 
+
+%% Use single subject data
+load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/dataCCGP.mat")
+
+ySelf = dataCCGP.ySelf;
+yPrey = dataCCGP.yPrey;
+yUnprey = dataCCGP.yUnprey;
+
+SelfItems = dataCCGP.SelfItems;
+PreyItems = dataCCGP.PreyItems;
+UnpreyItems = dataCCGP.UnpreyItems;
+
+%% ===== CCGP on items: train SELF, test PREY + UNPREY =====
+n_reps      = 50;
+train_ratio = 0.7;
+rng(2025);
+
+high_self   = find(ySelf   == 1);
+low_self    = find(ySelf   == 0);
+
+high_prey   = find(yPrey   == 1);
+low_prey    = find(yPrey   == 0);
+
+high_unprey = find(yUnprey == 1);
+low_unprey  = find(yUnprey == 0);
+
+acc_real_prey    = nan(n_reps,1);
+acc_real_unprey  = nan(n_reps,1);
+
+for rep = 1:n_reps
+    
+    % 1) TRAIN ON SELF 
+    % shuffle self indices
+    hs = high_self(randperm(numel(high_self)));
+    ls = low_self(randperm(numel(low_self)));
+    
+    % split into train / test
+    nHtr = round(train_ratio * numel(hs));
+    nLtr = round(train_ratio * numel(ls));
+    
+    train_high = hs(1:nHtr);
+    test_high  = hs(nHtr+1:end);
+    
+    train_low  = ls(1:nLtr);
+    test_low   = ls(nLtr+1:end);
+    
+    % number of test samples per class (used to match prey/unprey)
+    nHte = numel(test_high);
+    nLte = numel(test_low);
+    
+    % require at least a few test samples per class
+    if nHte < 3 || nLte < 3
+        continue;
+    end
+    
+    % build SELF training data
+    idx_train = [train_high; train_low];
+    X_train   = SelfItems(idx_train, :);
+    y_train   = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+    
+    % z-score based on SELF training set
+    [X_train_z, mu, sigma] = zscore(X_train);
+    sigma(sigma == 0) = 1;  % guard against zero-variance features
+    
+    % train a single SVM model on SELF
+    mdl = fitcsvm(X_train_z, y_train, ...
+        'KernelFunction','linear', ...
+        'Standardize',false, ...
+        'ClassNames',[0 1]);
+    
+    
+    % 2) TEST ON CHOSEN PREY 
+    % make sure we have enough prey samples to match self test counts
+    if numel(high_prey) < nHte || numel(low_prey) < nLte
+        % not enough prey samples for this rep
+        continue;
+    end
+    
+    th_prey = high_prey(randperm(numel(high_prey), nHte));
+    tl_prey = low_prey(randperm(numel(low_prey),  nLte));
+    
+    idx_test_prey = [th_prey; tl_prey];
+    X_test_prey   = PreyItems(idx_test_prey, :);
+    y_test_prey   = [ones(numel(th_prey),1); zeros(numel(tl_prey),1)];
+    
+    % apply SELF training z-score to prey
+    X_test_prey_z = (X_test_prey - mu) ./ sigma;
+    
+    yhat_prey = predict(mdl, X_test_prey_z);
+    acc_real_prey(rep) = mean(yhat_prey == y_test_prey);
+    
+    
+    % 3) TEST ON UNCHOSEN PREY ITEMS
+    if numel(high_unprey) < nHte || numel(low_unprey) < nLte
+        % not enough unchosen samples for this rep
+        continue;
+    end
+    
+    th_unp = high_unprey(randperm(numel(high_unprey), nHte));
+    tl_unp = low_unprey(randperm(numel(low_unprey),  nLte));
+    
+    idx_test_unprey = [th_unp; tl_unp];
+    X_test_unprey   = UnpreyItems(idx_test_unprey, :);
+    y_test_unprey   = [ones(numel(th_unp),1); zeros(numel(tl_unp),1)];
+    
+    X_test_unprey_z = (X_test_unprey - mu) ./ sigma;
+    
+    yhat_unprey = predict(mdl, X_test_unprey_z);
+    acc_real_unprey(rep) = mean(yhat_unprey == y_test_unprey);
+end
+
+CCGP_real_prey   = mean(acc_real_prey,   'omitnan')
+CCGP_real_unprey = mean(acc_real_unprey, 'omitnan')
+
+
+
+%% ===== shuffle null: shuffle labels within each context (SELF, PREY, UNPREY) =====
+
+poolobj = gcp('nocreate');
+if isempty(poolobj)
+    parpool;
+end
+
+n_shuffles = 500;
+
+acc_shuf_prey   = nan(n_shuffles,1);
+acc_shuf_unprey = nan(n_shuffles,1);
+
+for sh = 1:n_shuffles
+    fprintf('Shuffle %d / %d\n', sh, n_shuffles);
+
+    % --- independently shuffle labels within each context ---
+    yS = ySelf(randperm(numel(ySelf)));
+    yP = yPrey(randperm(numel(yPrey)));
+    yU = yUnprey(randperm(numel(yUnprey)));
+
+    high_self_sh   = find(yS==1);  low_self_sh   = find(yS==0);
+    high_prey_sh   = find(yP==1);  low_prey_sh   = find(yP==0);
+    high_unprey_sh = find(yU==1);  low_unprey_sh = find(yU==0);
+
+    acc_rep_prey   = nan(n_reps,1);
+    acc_rep_unprey = nan(n_reps,1);
+
+    parfor rep = 1:n_reps
+
+        % =======================
+        % 1) TRAIN ON SHUFFLED SELF
+        % =======================
+        hs = high_self_sh(randperm(numel(high_self_sh)));
+        ls = low_self_sh(randperm(numel(low_self_sh)));
+
+        nHtr = round(train_ratio * numel(hs));
+        nLtr = round(train_ratio * numel(ls));
+
+        train_high = hs(1:nHtr);
+        test_high  = hs(nHtr+1:end);
+
+        train_low  = ls(1:nLtr);
+        test_low   = ls(nLtr+1:end);
+
+        nHte = numel(test_high);
+        nLte = numel(test_low);
+
+        % need at least a few test samples per class
+        if nHte < 3 || nLte < 3
+            continue;
+        end
+
+        idx_train = [train_high; train_low];
+        X_train   = SelfItems(idx_train, :);
+        y_train   = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+
+        [X_train_z, mu, sigma] = zscore(X_train);
+        sigma(sigma==0) = 1;
+
+        mdl = fitcsvm(X_train_z, y_train, ...
+            'KernelFunction','linear', ...
+            'Standardize',false, ...
+            'ClassNames',[0 1]);
+
+        % ============================
+        % 2) TEST ON SHUFFLED CHOSEN PREY
+        % ============================
+        if numel(high_prey_sh) < nHte || numel(low_prey_sh) < nLte
+            % not enough prey samples in this shuffle, skip this rep
+            continue;
+        end
+
+        th_p   = high_prey_sh(randperm(numel(high_prey_sh), nHte));
+        tl_p   = low_prey_sh(randperm(numel(low_prey_sh),  nLte));
+
+        idx_test_prey = [th_p; tl_p];
+        X_test_prey   = PreyItems(idx_test_prey, :);
+        y_test_prey   = [ones(numel(th_p),1); zeros(numel(tl_p),1)];
+
+        X_test_prey_z = (X_test_prey - mu) ./ sigma;
+
+        yhat_prey = predict(mdl, X_test_prey_z);
+        acc_rep_prey(rep) = mean(yhat_prey == y_test_prey);
+
+        % ===============================
+        % 3) TEST ON SHUFFLED UNCHOSEN PREY
+        % ===============================
+        if numel(high_unprey_sh) < nHte || numel(low_unprey_sh) < nLte
+            % not enough unchosen samples in this shuffle, skip this rep
+            continue;
+        end
+
+        th_u   = high_unprey_sh(randperm(numel(high_unprey_sh), nHte));
+        tl_u   = low_unprey_sh(randperm(numel(low_unprey_sh),  nLte));
+
+        idx_test_unprey = [th_u; tl_u];
+        X_test_unprey   = UnpreyItems(idx_test_unprey, :);
+        y_test_unprey   = [ones(numel(th_u),1); zeros(numel(tl_u),1)];
+
+        X_test_unprey_z = (X_test_unprey - mu) ./ sigma;
+
+        yhat_unprey = predict(mdl, X_test_unprey_z);
+        acc_rep_unprey(rep) = mean(yhat_unprey == y_test_unprey);
+    end
+
+    acc_shuf_prey(sh)   = mean(acc_rep_prey,   'omitnan');
+    acc_shuf_unprey(sh) = mean(acc_rep_unprey, 'omitnan');
+end
+
+% remove NaN shuffles if any reps were skipped
+acc_shuf_prey   = acc_shuf_prey(~isnan(acc_shuf_prey));
+acc_shuf_unprey = acc_shuf_unprey(~isnan(acc_shuf_unprey));
+
+
+% Real accuracies
+real_prey    = CCGP_real_prey;    
+real_unprey  = CCGP_real_unprey;   
+
+% Null distributions
+null_prey    = acc_shuf_prey;       % vector of shuffled accuracies
+null_unprey  = acc_shuf_unprey;
+
+chance = 0.5;
+
+pval_prey = mean(null_prey >= real_prey);
+
+% compare absolute deviation from chance
+pval_unprey = mean( abs(null_unprey - chance) >= abs(real_unprey - chance) );
+
+fprintf('SELF->PREY    CCGP: real=%.3f | shuffle=%.3f±%.3f | p=%.4f\n', ...
+    CCGP_real_prey, mean(acc_shuf_prey), std(acc_shuf_prey), pval_prey);
+fprintf('SELF->UNPREY  CCGP: real=%.3f | shuffle=%.3f±%.3f | p=%.4f\n', ...
+    CCGP_real_unprey, mean(acc_shuf_unprey), std(acc_shuf_unprey), pval_unprey);
+
+% visualize
+figure;
+subplot(1,2,1); hold on;
+histogram(acc_shuf_prey,'Normalization','probability');
+yl = ylim;
+plot([CCGP_real_prey CCGP_real_prey], yl, 'k-', 'LineWidth', 2);
+plot([0.5 0.5], yl, 'k--', 'LineWidth', 1);
+title(sprintf('Self->Chosen Prey: real=%.3f, p=%.4f', CCGP_real_prey, pval_prey));
+xlabel('CCGP accuracy'); ylabel('Probability');
+
+subplot(1,2,2); hold on;
+histogram(acc_shuf_unprey,'Normalization','probability');
+yl = ylim;
+plot([CCGP_real_unprey CCGP_real_unprey], yl, 'k-', 'LineWidth', 2);
+plot([0.5 0.5], yl, 'k--', 'LineWidth', 1);
+title(sprintf('Self->Unchosen Prey: real=%.3f, p=%.4f', CCGP_real_unprey, pval_unprey));
+xlabel('CCGP accuracy'); ylabel('Probability');
+
+%% Plot the results all together 
+
+% --- summarize real distributions ---
+
+real_means = [mean(acc_real_prey,   'omitnan'), ...
+              mean(acc_real_unprey, 'omitnan')];
+
+% --- summarize null distributions (shuffle / geometric model) ---
+
+null_stds  = [std(acc_shuf_prey,   'omitnan'), ...
+              std(acc_shuf_unprey, 'omitnan')];
+
+xpos = [1 2];   % 1 = chosen prey, 2 = unchosen prey
+
+% --- colors ---
+col_chosen   = [0.8500 0.3250 0.0980];  % orange-ish
+col_unchosen = [0.4940 0.1840 0.5560];  % purple
+col_dots     = 0.4*[1 1 1];             % gray for individual reps
+
+chance_level = 0.5;  % chance accuracy
+
+figure; hold on; box on;
+
+% 1) plot null band: ±2 SD around chance
+for i = 1:numel(xpos)
+    x = xpos(i);
+    s = null_stds(i);
+
+    lo = chance_level - 2*s;
+    hi = chance_level + 2*s;
+
+    % vertical bar from (chance - 2*SD) to (chance + 2*SD)
+    plot([x x], [lo, hi], 'k-', 'LineWidth', 4);
+
+    % thick horizontal caps at top & bottom
+    cap_width = 0.15;
+    plot([x-cap_width, x+cap_width], [lo, lo], 'k-', 'LineWidth', 4);
+    plot([x-cap_width, x+cap_width], [hi, hi], 'k-', 'LineWidth', 4);
+end
+
+% 2) scatter real CCGP accuracies (each repetition) as gray dots
+jitter = 0.20;
+
+% Self -> chosen prey
+xj = xpos(1) + (rand(size(acc_real_prey))-0.5)*2*jitter;
+scatter(xj, acc_real_prey, 150, 'MarkerFaceColor', col_dots, ...
+    'MarkerEdgeColor', 'k', 'MarkerFaceAlpha', 0, 'MarkerEdgeAlpha', 1);
+
+% Self -> unchosen prey
+xj = xpos(2) + (rand(size(acc_real_unprey))-0.5)*2*jitter;
+scatter(xj, acc_real_unprey, 150, 'MarkerFaceColor', col_dots, ...
+    'MarkerEdgeColor', 'k', 'MarkerFaceAlpha', 0, 'MarkerEdgeAlpha', 1);
+
+% 3) overlay mean real accuracies as big colored circles
+plot(xpos(1), real_means(1), 'o', 'MarkerSize', 12, ...
+     'MarkerFaceColor', col_chosen,   'MarkerEdgeColor', 'k', 'LineWidth', 1.5);
+plot(xpos(2), real_means(2), 'o', 'MarkerSize', 12, ...
+     'MarkerFaceColor', col_unchosen, 'MarkerEdgeColor', 'k', 'LineWidth', 1.5);
+
+% 4) chance level (0.5) as dashed line
+yl = ylim;
+plot([0.5 2.5], [chance_level chance_level], 'k--', 'LineWidth', 1.5);
+ylim(yl);   % or set manually, e.g. [0.2 0.9]
+
+% cosmetics
+xlim([0.5 2.5]);
+set(gca, 'XTick', xpos, 'XTickLabel', {'Chosen prey', 'Unchosen prey'});
+ylabel('Cross-agent generalization accuracy');
+title('Train Self, test across agents');
+set(gca,'TickDir','out', 'Color', 'None', 'box','off', ...
+    'Fontname','Helvetica', 'FontSize', 12, 'TitleFontWeight' , 'normal');
+set(gca,'FontSize',12);
+
+%% Repeat everything for Chosen vs Unchosen Prey 
+n_reps      = 50;         % or whatever you used above
+train_ratio = 0.7;
+
+high_prey   = find(yPrey   == 1);
+low_prey    = find(yPrey   == 0);
+
+high_unprey = find(yUnprey == 1);
+low_unprey  = find(yUnprey == 0);
+
+acc_real_p2u = nan(n_reps,1);   % prey -> unprey
+
+for rep = 1:n_reps
+
+    % 1) TRAIN ON CHOSEN PREY
+    hs = high_prey(randperm(numel(high_prey)));
+    ls = low_prey(randperm(numel(low_prey)));
+
+    nHtr = round(train_ratio * numel(hs));
+    nLtr = round(train_ratio * numel(ls));
+
+    train_high = hs(1:nHtr);
+    test_high  = hs(nHtr+1:end);
+
+    train_low  = ls(1:nLtr);
+    test_low   = ls(nLtr+1:end);
+
+    nHte = numel(test_high);
+    nLte = numel(test_low);
+
+    if nHte < 3 || nLte < 3
+        continue;
+    end
+
+    idx_train = [train_high; train_low];
+    X_train   = PreyItems(idx_train, :);
+    y_train   = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+
+    [X_train_z, mu, sigma] = zscore(X_train);
+    sigma(sigma == 0) = 1;
+
+    mdl = fitcsvm(X_train_z, y_train, ...
+        'KernelFunction','linear', ...
+        'Standardize',false, ...
+        'ClassNames',[0 1]);
+
+    % 2) TEST ON UNCHOSEN PREY
+
+    if numel(high_unprey) < nHte || numel(low_unprey) < nLte
+        % not enough unchosen samples to match test set sizes
+        continue;
+    end
+
+    th_unprey = high_unprey(randperm(numel(high_unprey), nHte));
+    tl_unprey = low_unprey(randperm(numel(low_unprey),  nLte));
+
+    idx_test_unprey = [th_unprey; tl_unprey];
+    X_test_unprey   = UnpreyItems(idx_test_unprey, :);
+    y_test_unprey   = [ones(numel(th_unprey),1); zeros(numel(tl_unprey),1)];
+
+    X_test_unprey_z = (X_test_unprey - mu) ./ sigma;
+
+    yhat_unprey = predict(mdl, X_test_unprey_z);
+    acc_real_p2u(rep) = mean(yhat_unprey == y_test_unprey);
+end
+
+CCGP_real_prey2unprey = mean(acc_real_p2u,'omitnan')
+
+%% ===== Shuffle null: PREY (train) -> UNPREY (test) =====
+
+poolobj = gcp('nocreate');
+if isempty(poolobj)
+    parpool;
+end
+
+n_shuffles = 500;
+acc_shuf_p2u = nan(n_shuffles,1);
+
+for sh = 1:n_shuffles
+    fprintf('Shuffle %d / %d\n', sh, n_shuffles);
+
+    % shuffle labels within each context independently
+    yP_sh = yPrey(randperm(numel(yPrey)));
+    yU_sh = yUnprey(randperm(numel(yUnprey)));
+
+    high_prey_sh   = find(yP_sh==1);  low_prey_sh   = find(yP_sh==0);
+    high_unprey_sh = find(yU_sh==1);  low_unprey_sh = find(yU_sh==0);
+
+    acc_rep = nan(n_reps,1);
+
+    parfor rep = 1:n_reps
+
+        % ---- TRAIN on shuffled CHOSEN PREY ----
+        hs = high_prey_sh(randperm(numel(high_prey_sh)));
+        ls = low_prey_sh(randperm(numel(low_prey_sh)));
+
+        nHtr = round(train_ratio * numel(hs));
+        nLtr = round(train_ratio * numel(ls));
+
+        train_high = hs(1:nHtr);
+        test_high  = hs(nHtr+1:end);
+
+        train_low  = ls(1:nLtr);
+        test_low   = ls(nLtr+1:end);
+
+        nHte = numel(test_high);
+        nLte = numel(test_low);
+
+        if nHte < 3 || nLte < 3
+            continue;
+        end
+
+        idx_train = [train_high; train_low];
+        X_train   = PreyItems(idx_train, :);
+        y_train   = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+
+        [X_train_z, mu, sigma] = zscore(X_train);
+        sigma(sigma==0) = 1;
+
+        mdl = fitcsvm(X_train_z, y_train, ...
+            'KernelFunction','linear', ...
+            'Standardize',false, ...
+            'ClassNames',[0 1]);
+
+        % ---- TEST on shuffled UNCHOSEN PREY ----
+        if numel(high_unprey_sh) < nHte || numel(low_unprey_sh) < nLte
+            continue;
+        end
+
+        th_u = high_unprey_sh(randperm(numel(high_unprey_sh), nHte));
+        tl_u = low_unprey_sh(randperm(numel(low_unprey_sh),   nLte));
+
+        idx_test_unp = [th_u; tl_u];
+        X_test_unp   = UnpreyItems(idx_test_unp, :);
+        y_test_unp   = [ones(numel(th_u),1); zeros(numel(tl_u),1)];
+
+        X_test_unp_z = (X_test_unp - mu) ./ sigma;
+
+        yhat_unp = predict(mdl, X_test_unp_z);
+        acc_rep(rep) = mean(yhat_unp == y_test_unp);
+    end
+
+    acc_shuf_p2u(sh) = mean(acc_rep,'omitnan');
+end
+
+acc_shuf_p2u = acc_shuf_p2u(~isnan(acc_shuf_p2u));
+
+pval_prey2unprey = mean(acc_shuf_p2u <= CCGP_real_prey2unprey);
+
+fprintf('PREY->UNPREY CCGP: real=%.3f | shuffle=%.3f±%.3f | p=%.4f\n', ...
+    CCGP_real_prey2unprey, mean(acc_shuf_p2u), std(acc_shuf_p2u), pval_prey2unprey);
+
+figure; hold on;
+histogram(acc_shuf_p2u,'Normalization','probability');
+yl = ylim;
+plot([CCGP_real_prey2unprey CCGP_real_prey2unprey], yl, 'k-', 'LineWidth', 2);
+plot([0.5 0.5], yl, 'k--', 'LineWidth', 1);
+title(sprintf('Prey->Unchosen Prey CCGP: real=%.3f, p=%.4f', ...
+      CCGP_real_prey2unprey, pval_prey2unprey));
+xlabel('CCGP accuracy'); ylabel('Probability');
+
+%% Plotting the results for prey - prey
+
+% --- summarize real distribution ---
+real_mean = mean(acc_real_p2u, 'omitnan');
+
+% --- summarize shuffle distribution ---
+null_std  = std(acc_shuf_p2u, 'omitnan');
+
+chance_level = 0.5;       % chance (binary classification)
+xpos = 1;                 % single condition
+
+% colors
+col_real = [0.8500 0.3250 0.0980];   % same orange used before
+col_dots = 0.4*[1 1 1];              % gray for individual reps
+
+figure; hold on; box on;
+
+lo = chance_level - 2*null_std;
+hi = chance_level + 2*null_std;
+
+% vertical bar
+plot([xpos xpos], [lo hi], 'k-', 'LineWidth', 4);
+
+% caps
+cap_width = 0.15;
+plot([xpos-cap_width xpos+cap_width], [lo lo], 'k-', 'LineWidth', 4);
+plot([xpos-cap_width xpos+cap_width], [hi hi], 'k-', 'LineWidth', 4);
+
+jitter = 0.12;
+xj = xpos + (rand(size(acc_real_p2u))-0.5)*2*jitter;
+
+scatter(xj, acc_real_p2u, 150, ...
+    'MarkerFaceColor', col_dots, ...
+    'MarkerEdgeColor', 'k', ...
+    'MarkerFaceAlpha', 0, ...
+    'MarkerEdgeAlpha', 1);
+
+plot(xpos, real_mean, 'o', 'MarkerSize', 12, ...
+    'MarkerFaceColor', col_real, ...
+    'MarkerEdgeColor', 'k', 'LineWidth', 1.5);
+
+
+yl = ylim;
+plot([0.5 1.5], [chance_level chance_level], 'k--', 'LineWidth', 1.5);
+ylim(yl);
+
+% Cosmetics
+xlim([0.5 1.5]);
+set(gca, 'XTick', xpos, 'XTickLabel', {'Chosen → Unchosen'});
+ylabel('Cross-agent generalization accuracy');
+title('Train Chosen prey, test Unchosen prey');
+set(gca,'TickDir','out', 'Color', 'None', 'box','off', ...
+    'Fontname','Helvetica', 'FontSize', 12, 'TitleFontWeight','normal');
+set(gca,'FontSize',12);
+
+%% WITHIN decoding 
+n_reps      = 50;
+train_ratio = 0.7;
+rng(2025);
+
+% ----- SELF -> SELF -----
+high_self = find(ySelf == 1);
+low_self  = find(ySelf == 0);
+
+acc_self_self = nan(n_reps,1);
+
+for rep = 1:n_reps
+    
+    % shuffle indices
+    hs = high_self(randperm(numel(high_self)));
+    ls = low_self(randperm(numel(low_self)));
+    
+    % train/test split
+    nHtr = round(train_ratio * numel(hs));
+    nLtr = round(train_ratio * numel(ls));
+    
+    train_high = hs(1:nHtr);
+    test_high  = hs(nHtr+1:end);
+    
+    train_low  = ls(1:nLtr);
+    test_low   = ls(nLtr+1:end);
+    
+    nHte = numel(test_high);
+    nLte = numel(test_low);
+    if nHte < 3 || nLte < 3
+        continue;
+    end
+    
+    idx_train = [train_high; train_low];
+    idx_test  = [test_high;  test_low];
+    
+    X_train = SelfItems(idx_train, :);
+    y_train = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+    
+    X_test  = SelfItems(idx_test, :);
+    y_test  = [ones(numel(test_high),1); zeros(numel(test_low),1)];
+    
+    % z-score on training set
+    [X_train_z, mu, sigma] = zscore(X_train);
+    sigma(sigma==0) = 1;
+    X_test_z = (X_test - mu) ./ sigma;
+    
+    mdl = fitcsvm(X_train_z, y_train, ...
+        'KernelFunction','linear', ...
+        'Standardize',false, ...
+        'ClassNames',[0 1]);
+    
+    yhat = predict(mdl, X_test_z);
+    acc_self_self(rep) = mean(yhat == y_test);
+end
+
+ACC_self_self = mean(acc_self_self,'omitnan')
+
+
+%% ----- PREY -> PREY -----
+high_prey = find(yPrey == 1);
+low_prey  = find(yPrey == 0);
+
+acc_prey_prey = nan(n_reps,1);
+
+for rep = 1:n_reps
+    
+    hp = high_prey(randperm(numel(high_prey)));
+    lp = low_prey(randperm(numel(low_prey)));
+    
+    nHtr = round(train_ratio * numel(hp));
+    nLtr = round(train_ratio * numel(lp));
+    
+    train_high = hp(1:nHtr);
+    test_high  = hp(nHtr+1:end);
+    
+    train_low  = lp(1:nLtr);
+    test_low   = lp(nLtr+1:end);
+    
+    nHte = numel(test_high);
+    nLte = numel(test_low);
+    if nHte < 3 || nLte < 3
+        continue;
+    end
+    
+    idx_train = [train_high; train_low];
+    idx_test  = [test_high;  test_low];
+    
+    X_train = PreyItems(idx_train, :);
+    y_train = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+    
+    X_test  = PreyItems(idx_test, :);
+    y_test  = [ones(numel(test_high),1); zeros(numel(test_low),1)];
+    
+    [X_train_z, mu, sigma] = zscore(X_train);
+    sigma(sigma==0) = 1;
+    X_test_z = (X_test - mu) ./ sigma;
+    
+    mdl = fitcsvm(X_train_z, y_train, ...
+        'KernelFunction','linear', ...
+        'Standardize',false, ...
+        'ClassNames',[0 1]);
+    
+    yhat = predict(mdl, X_test_z);
+    acc_prey_prey(rep) = mean(yhat == y_test);
+end
+
+ACC_prey_prey = mean(acc_prey_prey,'omitnan')
+
+
+%% ----- UNCHOSEN -> UNCHOSEN -----
+high_unprey = find(yUnprey == 1);
+low_unprey  = find(yUnprey == 0);
+
+acc_unprey_unprey = nan(n_reps,1);
+
+for rep = 1:n_reps
+    
+    hu = high_unprey(randperm(numel(high_unprey)));
+    lu = low_unprey(randperm(numel(low_unprey)));
+    
+    nHtr = round(train_ratio * numel(hu));
+    nLtr = round(train_ratio * numel(lu));
+    
+    train_high = hu(1:nHtr);
+    test_high  = hu(nHtr+1:end);
+    
+    train_low  = lu(1:nLtr);
+    test_low   = lu(nLtr+1:end);
+    
+    nHte = numel(test_high);
+    nLte = numel(test_low);
+    if nHte < 3 || nLte < 3
+        continue;
+    end
+    
+    idx_train = [train_high; train_low];
+    idx_test  = [test_high;  test_low];
+    
+    X_train = UnpreyItems(idx_train, :);
+    y_train = [ones(numel(train_high),1); zeros(numel(train_low),1)];
+    
+    X_test  = UnpreyItems(idx_test, :);
+    y_test  = [ones(numel(test_high),1); zeros(numel(test_low),1)];
+    
+    [X_train_z, mu, sigma] = zscore(X_train);
+    sigma(sigma==0) = 1;
+    X_test_z = (X_test - mu) ./ sigma;
+    
+    mdl = fitcsvm(X_train_z, y_train, ...
+        'KernelFunction','linear', ...
+        'Standardize',false, ...
+        'ClassNames',[0 1]);
+    
+    yhat = predict(mdl, X_test_z);
+    acc_unprey_unprey(rep) = mean(yhat == y_test);
+end
+
+ACC_unprey_unprey = mean(acc_unprey_unprey,'omitnan');
+
+fprintf('\nWithin-agent decoding (Panel A):\n');
+fprintf('SELF->SELF       = %.3f\n', ACC_self_self);
+fprintf('PREY->PREY       = %.3f\n', ACC_prey_prey);
+fprintf('UNPREY->UNPREY   = %.3f\n', ACC_unprey_unprey);

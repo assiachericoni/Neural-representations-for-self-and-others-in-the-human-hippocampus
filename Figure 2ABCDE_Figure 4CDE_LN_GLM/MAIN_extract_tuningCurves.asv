@@ -1,0 +1,162 @@
+clear; close all;
+
+settings.tuning = 'gaze'; % can be position, gaze (or predator to implement)
+
+switch settings.tuning
+
+    case 'position'
+
+        pts = {'YEJ', 'YEK', 'YEU', 'YEW', 'YEX', 'YEY', 'YEZ', 'YFA', 'YFB', 'YFC', 'YFD', 'YFF', 'YFJ', 'YFK', 'YFM', 'YFP', 'YFQ', 'YFR','YFS', 'YFT', 'YFU'};
+        dates = {'20221221_171717', '20230112_180240', '20231004_131620', '20231116', '20240207_164159', '20240402_124118',...
+            '20240411_103625', '20240424_142255', '20240506_115804', '20240720_113647', '20240731_111516', '20240821_113346',...
+            '20241108_153018', '20250214_154936', '20250318_105540', '20250507_155458', '20250614_150352', '20250705_131156', '20250718_141400', '20250729_173548', '20251212_115117'};
+
+        DMcat = [];
+
+        for pp = 1:length(pts)
+            path = ['/Users/assiachericoni/Documents/MATLAB/data/PacMan/' pts{pp} '/NEURONS_DATA/'];
+            load([path '/twoPreyDM_' dates{pp} '_3_6bins.mat']);
+            % load([path '/DM5splits.mat']);
+
+
+            DMcat(pp).pt = DM;
+        end
+
+
+
+        %% Extract Position maps for all the neurons
+
+        SelfMaps = [];
+        ChosenPreyMaps = [];
+        UnchosenPreyMaps = [];
+
+        ptNums = [];
+        ptIDs = [];
+
+        for d = 1:length(DMcat)
+
+
+            DM = DMcat(d).pt;
+            reg = DMcat(d).pt.brain_regions;
+
+            hpc_ind = find(strcmp(reg, 'hpc'));
+            spiketrain = DM.spiketrain(:,hpc_ind);
+
+            selfX = DM.self_posx;
+            selfY = DM.self_posy;
+
+            preyPosX = DM.chosen_prey_posx;
+            preyPosY = DM.chosen_prey_posy;
+
+            UnchosenPreyPosX = DM.unchosen_prey_posx;
+            UnchosenPreyPosY = DM.unchosen_prey_posy;
+
+            mapPreyPosPt = []; mapSelfPosPt = []; mapUnPreyPosPt = [];
+
+            for iN = 1:size(spiketrain,2)
+
+                spikes = spiketrain(:,iN);
+
+                mapSelfPos = compute_2d_tuning_curve(selfX, selfY, spikes, 6, [min(selfX) min(selfY)], [max(selfX) max(selfY)]);
+                mapPreyPos = compute_2d_tuning_curve(preyPosX, preyPosY, spikes, 6, [min(preyPosX) min(preyPosY)], [max(preyPosX) max(preyPosY)]);
+                mapUnPreyPos = compute_2d_tuning_curve(UnchosenPreyPosX, UnchosenPreyPosY, spikes, 6, [min(UnchosenPreyPosX) min(UnchosenPreyPosY)], [max(UnchosenPreyPosX) max(UnchosenPreyPosY)]);
+
+                mapSelfPosPt{iN,1} = mapSelfPos;
+                mapPreyPosPt{iN,1} = mapPreyPos;
+                mapUnPreyPosPt{iN,1} = mapUnPreyPos;
+
+            end
+
+            SelfMaps = [SelfMaps; mapSelfPosPt];
+            ChosenPreyMaps = [ChosenPreyMaps; mapPreyPosPt];
+            UnchosenPreyMaps = [UnchosenPreyMaps; mapUnPreyPosPt];
+
+            ptNums = [ptNums; d*ones(size(spiketrain,2),1)];
+            ptIDs = [ptIDs; repmat(pts(d), size(spiketrain,2), 1)];
+        end
+
+    case 'gaze'
+        %% Extract tuning curves with gaze
+        pts = {'YFP', 'YFQ', 'YFR','YFS', 'YFT', 'YFU'};
+        dates = {'20250507_155458', '20250614_150352', '20250705_131156', '20250718_141400', '20250729_173548', '20251212_115117'};
+
+
+        DMcat = [];
+
+        for pp = 1:length(pts)
+            path = ['/Users/assiachericoni/Documents/MATLAB/data/PacMan/' pts{pp} '/NEURONS_DATA/'];
+            load([path '/twoPreyDM_' dates{pp} '_4_6bins.mat']);
+            % load([path '/DM5splits.mat']);
+
+
+            DMcat(pp).pt = DM;
+        end
+
+
+        SelfMaps = [];
+        ChosenPreyMaps = [];
+        UnchosenPreyMaps = [];
+
+        ptNums = [];
+        ptIDs = [];
+
+        for d = 1:length(DMcat)
+
+
+            DM = DMcat(d).pt;
+            reg = DMcat(d).pt.brain_regions;
+
+            hpc_ind = find(strcmp(reg, 'hpc'));
+            spiketrain = DM.spiketrain(:,hpc_ind);
+
+            selfX = DM.self_posx;
+            selfY = DM.self_posy;
+
+            preyPosX = DM.chosen_prey_posx;
+            preyPosY = DM.chosen_prey_posy;
+
+            UnchosenPreyPosX = DM.unchosen_prey_posx;
+            UnchosenPreyPosY = DM.unchosen_prey_posy;
+
+            mapPreyPosPt = []; mapSelfPosPt = []; mapUnPreyPosPt = [];
+
+            for iN = 1:size(spiketrain,2)
+
+                spikes = spiketrain(:,iN);
+
+                mapSelfPos = compute_2d_tuning_curve(selfX, selfY, spikes, 6, [min(selfX) min(selfY)], [max(selfX) max(selfY)]);
+                mapPreyPos = compute_2d_tuning_curve(preyPosX, preyPosY, spikes, 6, [min(preyPosX) min(preyPosY)], [max(preyPosX) max(preyPosY)]);
+                mapUnPreyPos = compute_2d_tuning_curve(UnchosenPreyPosX, UnchosenPreyPosY, spikes, 6, [min(UnchosenPreyPosX) min(UnchosenPreyPosY)], [max(UnchosenPreyPosX) max(UnchosenPreyPosY)]);
+
+                mapSelfPosPt{iN,1} = mapSelfPos;
+                mapPreyPosPt{iN,1} = mapPreyPos;
+                mapUnPreyPosPt{iN,1} = mapUnPreyPos;
+
+            end
+
+            SelfMaps = [SelfMaps; mapSelfPosPt];
+            ChosenPreyMaps = [ChosenPreyMaps; mapPreyPosPt];
+            UnchosenPreyMaps = [UnchosenPreyMaps; mapUnPreyPosPt];
+
+            ptNums = [ptNums; d*ones(size(spiketrain,2),1)];
+            ptIDs = [ptIDs; repmat(pts(d), size(spiketrain,2), 1)];
+        end
+
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

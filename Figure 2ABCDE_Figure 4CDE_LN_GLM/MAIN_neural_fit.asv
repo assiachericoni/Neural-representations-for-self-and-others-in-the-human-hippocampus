@@ -1,0 +1,100 @@
+%% Description of main function.
+
+% 1. fit all single models exhaustively.
+% 2. determine the best and add one var.
+% 3. continue until llh does not increase with adding more variables
+% 4. test significance of the model in respect to null distribution (take
+% positive right values)
+
+% shuffle and bootstrap are implemented to find false positive rate on the data for sanity check 
+
+% Input design matrix DM 
+
+% Details are described in Yoo et al., 2019 and original inspiration is
+% from Hardcastle et al. 2017, Neuron. 
+
+clear; clc; close all;
+warning('off', 'all');
+
+%% Load the DM matrix and make Results directory
+
+%%% Input patient names recording date and number of variables
+
+pts = 'XXX';  date = 'XXX';
+
+par_num = 3;
+bins_num = 6; % 6x6 grid 
+
+name = ['twoPreyDM_' date '_' num2str(par_num) '_' num2str(bins_num) 'bins'];
+
+% Load DM 
+[file,filepath] = uigetfile([name '*.mat']);
+fullpath = fullfile(filepath, file);
+load(fullpath);
+
+fprintf(['(1/5) Loading DM with ' num2str(par_num) ' state variables and ' num2str(bins_num) ' bins\n']);
+
+
+%% Parameters 
+
+SampleRate  = 60;	% Hz, depends on behavioral data sampling frequency
+numFolds    = 10;	% cross-validation folds
+p_threshold = 0.05; % p-value threshold for signrank tests to test model significance
+nBoot		= 1;	% number of bootstrap samples, if = 1 means no bootstrap
+
+%% Forward model selection procedure
+% creates combinations of all the possible models. For instance if the
+% state variables are 2, then there are 3 possible models: 2 single models
+% and 1 combined model
+
+[modelType,numModels] = obtain_modelType(numParams);
+n_var = numel(numParams);
+
+orig_DM	= DM;
+[d_pts, n_neuron] = size(orig_DM.spiketrain); % spiketrain is n samples X n neurons
+
+read_and_bin_DM;
+fit_ln_glm;
+
+%% Saving results
+timestamp = datetime('now');
+if nBoot>1
+    saveName = sprintf('%s_bootstrap%02d.mat', timestamp, nBoot);
+else
+    saveName = sprintf('%s_2preys_no_shuffle_run_%02dparams.mat', timestamp, size(numParams,2));
+end
+
+cd(filepath); cd ../LN_GLM_RESULTS/
+save(saveName,'GLM_out','all_selected_model', 'modelType','orig_DM','vars_explained','numParams');
+
+
+%% Resampling and shuffling 
+
+shuffle_on = true; % different kind of data shuffling compared to bootstrapping, here neurons only are shuffled (not the predictors)
+
+if shuffle_on 
+    n_shuffle = 10; 
+    for kSh = 1:n_shuffle
+        for iN = 1 : n_neuron
+			idx = datasample(1:d_pts, d_pts, 'replace', true);
+			DM.spiketrain(:, iN) = orig_DM.spiketrain(idx, iN);
+        end
+       
+        %% Read DM matrix and bin (one-hot-encoding)
+        %%% this function needs to be modified when more parameters will added to
+        %%% the analysis
+
+        read_and_bin_DM;
+
+
+        %% Fitting the models
+
+        % train and test of all the models for each neuron with 10-folds CV and LLH maximization
+        fit_ln_glm;
+
+        %% Saving results
+        timestamp = datetime('now');
+		saveName = sprintf('%s_shuffle_run%03d.mat',timestamp,kSh);
+		save(fullfile('./LN_GLM_RESULTS',saveName),'GLM_out','all_selected_model', 'modelType','timestamp');
+    end
+end
