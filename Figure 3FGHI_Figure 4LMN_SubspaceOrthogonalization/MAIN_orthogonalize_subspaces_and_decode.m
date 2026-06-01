@@ -10,7 +10,13 @@ close all; clear;
 % needs function find_self_prey_subspaces - 
 
 % load tuning curves
-load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/tuningCurves.mat")
+scriptPath = fileparts(which('MAIN_orthogonalize_subspaces_and_decode'));
+analysisRoot = fileparts(scriptPath);
+addpath(genpath(fullfile(scriptPath,'functions')));
+
+load(fullfile(analysisRoot,'data','tuningCurves.mat'));
+
+%%%%%%% ADD TO THE PATH YOUR MANOPT FOLDER %%%%%%
 
 %load('/Users/assiachericoni/Documents/MATLAB/data/PacMan/cumulativeAll/allTuningCurves.mat')
 %load('/Users/assiachericoni/Documents/MATLAB/data/PacMan/cumulativeAll/allTuningCurvesGaze.mat')
