@@ -25,8 +25,13 @@ warning('off', 'all');
 
 %% Load the DM matrix 
 
-scriptPath = fileparts(mfilename('fullpath'));
-load(fullfile(scriptPath,'..','data','DM.mat'));
+scriptPath = fileparts(which('MAIN_neural_fit'));
+repoRoot = fileparts(scriptPath);
+
+addpath(genpath(fullfile(scriptPath,'functions')));
+
+load(fullfile(repoRoot,'data','DM.mat'));
+
 
 %load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/DM.mat")
 

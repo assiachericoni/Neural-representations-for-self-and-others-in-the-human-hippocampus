@@ -1,6 +1,5 @@
 %% Load chuncked data 
 clear; close all
-
 %load('chunckForCCGP_40s_6binsPerClass.mat')
 % load('chunckForCCGP_40s_6BESTbinsPerClass.mat')
 % load('chunckForCCGP_40s_6BESTbinsPerClass_topbottom.mat')

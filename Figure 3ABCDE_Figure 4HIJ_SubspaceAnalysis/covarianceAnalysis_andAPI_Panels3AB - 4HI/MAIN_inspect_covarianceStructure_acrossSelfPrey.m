@@ -6,7 +6,14 @@ warning('off');
 % needs hart dip test function which is inside functions folder (add to the
 % path) 
 
-load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/tuningCurves.mat")
+scriptPath = fileparts(which('MAIN_inspect_covarianceStructure_acrossSelfPrey'));
+analysisRoot = fileparts(scriptPath);
+repoRoot = fileparts(analysisRoot);
+
+addpath(genpath(fullfile(analysisRoot,'functions')));
+
+load(fullfile(repoRoot,'data','tuningCurves.mat'));
+
 %% Visualize covariance structure
 
 Fs = 1/60;
@@ -113,7 +120,7 @@ ylabel('Pairwise corr (Unchosen Prey XY)');
 title(['Pairwise comparison, r^2 = ' num2str(r_pair^2)])
 set(gca,'tickdir','out','color','none','linewidth',1,'fontsize',12); box off;
 
-%% Epoch preference index
+%% Agent preference index
 
 N = numel(SelfMaps);
 

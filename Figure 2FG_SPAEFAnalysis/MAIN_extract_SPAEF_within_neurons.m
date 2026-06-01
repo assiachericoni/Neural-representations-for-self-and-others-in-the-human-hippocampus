@@ -5,7 +5,11 @@
 
 clear; close all;
  
-load("/Users/assiachericoni/Documents/MATLAB/data/PacMan/cumulativeAll/allTuningCurves.mat")
+scriptPath = fileparts(which('MAIN_extract_SPAEF_within_neurons'));
+addpath(genpath(fullfile(scriptPath,'functions')));
+repoRoot = fileparts(scriptPath);
+
+load(fullfile(repoRoot,'data','tuningCurves.mat'));
 %% Compute SPAEF
 
 spaefPosPrey_vals = {};

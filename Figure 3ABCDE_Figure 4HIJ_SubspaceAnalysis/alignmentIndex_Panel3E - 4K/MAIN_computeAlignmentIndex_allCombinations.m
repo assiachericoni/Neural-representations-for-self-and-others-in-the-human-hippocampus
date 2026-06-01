@@ -1,11 +1,17 @@
 %% Compute Alignment index and implement random-subspace control 
-close all; clear;
 
 % input: tuning curves
 % needs functions: sample_dims_from_cov and alignment index (can be found
 % in the functions folder)
 
-load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/tuningCurves.mat")
+close all; clear;
+
+scriptPath = fileparts(which('MAIN_computeAlignmentIndex_allCombinations'));
+analysisRoot = fileparts(scriptPath);
+repoRoot = fileparts(analysisRoot);
+addpath(genpath(fullfile(analysisRoot,'functions')));
+
+load(fullfile(repoRoot,'data','tuningCurves.mat'));
 %% Extract matrices and compute covariances
 
 Fs = 1/60;
