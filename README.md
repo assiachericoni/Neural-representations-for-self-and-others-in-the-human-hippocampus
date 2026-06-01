@@ -6,4 +6,9 @@ https://arxiv.org/abs/2603.04747
 
 ## Contents
 
-* [Data availability]
+* Data availability
+* Authorship statement
+* System requirements
+
+
+## Data availability
