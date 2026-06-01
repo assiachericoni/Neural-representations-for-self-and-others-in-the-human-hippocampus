@@ -25,7 +25,10 @@ warning('off', 'all');
 
 %% Load the DM matrix 
 
-load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/DM.mat")
+scriptPath = fileparts(mfilename('fullpath'));
+load(fullfile(scriptPath,'..','data','DM.mat'));
+
+%load("/Users/assiachericoni/Documents/MATLAB/codes/PacManRepo-hippocampus/data/DM.mat")
 
 % %%% Input patient names recording date and number of variables
 % 
